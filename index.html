@@ -1,0 +1,282 @@
+<html>
+<head>
+
+<title>Encuentro Aleatorio</title>
+
+<link rel="stylesheet" type="text/css" href="http://fonts.googleapis.com/css?family=Oswald:normal,bold">
+<link rel="stylesheet" type="text/css" href="http://fonts.googleapis.com/css?family=PT+Mono">
+<style>
+
+    .centered {
+        display: table; margin: 0 auto;
+    }
+
+    html {
+        -webkit-font-smoothing: antialiased;
+    }
+
+    input {
+        outline: none;
+        width:520px;
+        height: 30px;
+        padding:5px;
+        font-family:"PT Mono";
+        font-size:15px;
+        font-weight:bold;
+        font-style:normal;
+        border:1px solid #cdcdcd;
+        border-right: 0px solid;
+        box-sizing: border-box;
+        vertical-align: middle;
+    }
+
+    a {
+        color: inherit;
+        text-decoration: none
+    }
+
+    a:hover{
+        color:#aaaaaa;
+    }
+
+    .title {
+        font-family:'Oswald', serif;
+        font-size:70px;
+        
+    }
+
+    .currently-playing {
+        font-family:"PT Mono";
+        font-size:15px;
+        font-weight:normal;
+        font-style:normal;
+        color:#212121;
+        word-wrap: break-word;
+        width:620px;
+        display: block;
+        white-space: pre-wrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        -o-text-overflow: ellipsis;
+        text-align: center;
+
+    }
+
+    .smalltext {
+        font-family:"PT Mono";
+        font-size: 16px;
+        color:#777777;
+        position:fixed;
+        width:50%;
+        text-align:left;
+        bottom:0px;
+        height:20px;
+    }
+
+    .button {
+        background-color:#D96536;
+        text-indent:0;
+        border:0px solid #dcdcdc;
+        color:#fff;
+        font-family:"Oswald";
+        font-size:15px;
+        font-weight:normal;
+        font-style:normal;
+        line-height:30px;
+        width:120px;
+        height: 30px;
+        text-decoration:none;
+        text-align:center;
+        outline: none;
+        box-sizing: border-box;
+        vertical-align: middle;
+    }
+    .button:active {
+        background-color:#cdcdcd;
+    }
+
+    .button.skipbutton {
+        width:220px;
+        height:35px;
+    }
+</style>
+
+<script src="http://ajax.googleapis.com/ajax/libs/jquery/1.10.2/jquery.min.js"></script>
+<script src="https://www.youtube.com/iframe_api" type="text/javascript"></script>
+<script>
+
+    function randRange(min,max) {
+        return Math.floor(Math.random()*(max-min + 1)) + min;
+    }
+
+    var last_picked_videos = [];
+    var last_picked_videos_max = 10;
+    video_entries = [];
+
+    var changeLoadTimer;
+    var player;
+
+    // initialize player
+    function onYouTubeIframeAPIReady() {
+        player = new YT.Player('player', {
+            height: '390',
+            width: '640',
+            playerVars: { 'rel': 0, color: 'white', theme: 'light'},
+            events: {
+                'onReady': onPlayerReady,
+                'onStateChange': onPlayerStateChange,
+                'onError': onPlayerError
+            }
+        });
+    }
+
+    function onPlayerReady(event) {
+        loadVideo();
+    }
+    
+    function onPlayerStateChange(event) {
+        if (event.data === YT.PlayerState.ENDED) {
+            // video ended, time to load the next video
+            loadVideo();
+        }
+    }
+
+    function onPlayerError() {
+        // just give up and try to load a new video :-(
+        loadVideo();
+    }
+
+    // loads a video list for a query
+    function getVideoList(query,start_index,max_results,callback) {
+        
+        // YouTube API search request
+        var url = "http://gdata.youtube.com/feeds/api/playlists/PLCl85dr6jQmG2RghDEgf9IC9n0Sd2MEeD?alt=json" +
+               
+                // "&q=" + encodeURIComponent(query) +
+                "&start-index=" + start_index +
+                "&max-results=" + max_results +
+                //"&duration=short" +
+                "&format=5" +
+                "&v=2.1&callback=?";
+
+        
+        $.getJSON(url, function(json) {
+            var videos = [];
+            for (var i = 0; i < json.feed.entry.length; i++) {
+                var entry = json.feed.entry[i];
+                var name = entry.title.$t;
+                var link = entry.link[0].href;
+                videos.push({name:name,link:link});
+            }
+            callback(videos);
+        });
+    }
+
+    // extracts a video id from a url
+    function extractVideoId(url) {
+        var video_id = url.split('v=')[1];
+        var ampersandPosition = video_id.indexOf('&');
+        if(ampersandPosition != -1) {
+            video_id = video_id.substring(0, ampersandPosition);
+        }
+        return video_id;
+    }
+
+    // pick a video based on a query
+    function pickRandomVideo(query, callback) {
+        
+        var PAGE_SIZE = 50; // number of results returned on one 'page'
+        var NUM_PAGES = 10; // max number of 'pages' available to this API
+        
+        var pageOffset = randRange(0,PAGE_SIZE-1);
+
+        getVideoList(query,pageOffset*NUM_PAGES+1,NUM_PAGES, function(videos) {
+            
+            var vidIndex = randRange(0,NUM_PAGES-1);
+            var videoId = extractVideoId(videos[vidIndex].link);
+            
+            videos[vidIndex].id = videoId;
+            
+            var index = last_picked_videos.indexOf(videoId);
+            
+            if ($.inArray(videoId, last_picked_videos) != -1) {
+                // retry, find a video that hasn't been played in a while
+                pickRandomVideo(query, callback);
+            }
+            else {
+                // add this video to the queue of recently picked videos
+                last_picked_videos.push(videoId);
+                if (last_picked_videos.length > last_picked_videos_max) {
+                    last_picked_videos.shift();
+                }
+                callback(videos[vidIndex]);
+            }
+        });
+    }
+
+    var nextVideo = null;
+
+    function loadVideo() {
+        
+        
+        // setup timer to change loading animation
+        clearInterval(changeLoadTimer);
+        changeLoadTimer = setInterval(changeLoadAnimation, 120);
+
+        // get the query and pick a video
+        var query = $("#video_keywords").val();
+        pickRandomVideo(query,function(video) {
+
+            // stop loading animation
+            clearInterval(changeLoadTimer);
+
+            $("#currently_playing").html(video.name + "<br>");
+            
+            // give YouTube player the new video
+            player.loadVideoById(video.id);
+        });
+    };
+
+    var loadingState = 0;
+
+    $(document).ready(function(){
+
+        // these two buttons do the same thing :-p
+        $("#play_button").click(loadVideo);
+        $("#skip_button").click(loadVideo);
+
+        $("#video_keywords").keypress(function(e) {
+            if(e.which == 10 || e.which == 13) {
+                loadVideo();
+            }
+        });
+    });
+
+    // cycles the loading animation
+    function changeLoadAnimation() {
+        var loadingStates = ["   ",".  ",".. ","..."," ..","  ."];
+        $("#currently_playing").html("Finding video" + loadingStates[loadingState]);
+        if (loadingState >= loadingStates.length-1)
+            loadingState = 0;
+        else
+            loadingState = loadingState + 1;
+    }
+
+</script>
+</head>
+<body>
+<div class="title centered"><strong><font color= "#00BCD4">ENCUENTRO</font></strong><font color="#D96536">ALEATORIO</font></div>
+<div style="margin-bottom:16px; margin-top:30px;" class="centered">
+    <!--<div style="margin-bottom:20px;" class="centered">
+        <input type="text" id="video_keywords" style="" placeholder="<no filter>">
+	<button id="play_button" class="button" style="">Change Filter</button>
+
+    </div>-->
+    <div id="player" class="centered"></div>
+    <div id="currently_playing" style="margin-top:16px; margin-left:20px; margin-bottom:20px;" class="currently-playing"></div>
+<button id="skip_button" class="button skipbutton centered">OTRA</button>
+
+    <!--<div class="smalltext">created by <a href="https://github.com/ethanhjennings" style="">Ethan Jennings</a></div>-->
+</div>
+</body>
+</html>
